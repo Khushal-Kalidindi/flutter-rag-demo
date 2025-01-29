@@ -3,26 +3,29 @@ import os
 import re
 from dotenv import load_dotenv
 from langchain_community.embeddings import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from typing import List, Dict
 import hashlib
 from pinecone import Pinecone
 import sys
+from tqdm import tqdm
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX = os.getenv("PINECONE_INDEX")
 EMBEDDINGS = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
+DATA_FOLDER = os.getenv("DATA_FOLDER")
 
 class DocumentChunk:
     def __init__(self, chunk_text: str):
         self.id = self._generate_id(chunk_text)
-        print("generating embedding...")
+        # print("generating embedding...")
         self.embedding = self._generate_embedding(chunk_text)
-        print("embedding generated")
+        # print("embedding generated")
         self.chunk_text = chunk_text
 
 
@@ -42,9 +45,6 @@ class Document:
         self.content = content
         self.chunks: list[DocumentChunk] = []
     
-    def generate_chunks(self):
-        self.chunks = chunk_content(self.content, min_chunk_size=10, max_chunk_size=500)
-    
 def read_text_file(filename: str) -> Document:
     with open(filename, "r") as file:
         content = file.read()
@@ -62,14 +62,15 @@ def recursive_split(paragraph: str, max_chunk_size: int):
     res.extend(recursive_split(paragraph[split_point:], max_chunk_size))
     return res
 
-def chunk_content(content: str, min_chunk_size:int, max_chunk_size: int) -> list[DocumentChunk]:
+def chunk_document(doc: Document, min_chunk_size:int, max_chunk_size: int) -> list[DocumentChunk]:
     # Ensure each text ends with a double newline to correctly split paragraphs
+    content = doc.content
     if not content.endswith("\n\n"):
         content += "\n\n"
     # Split text into paragraphs
     paragraphs = content.split("\n\n")
     chunks: list[DocumentChunk] = []
-    for p in paragraphs:
+    for p in tqdm(paragraphs, total=len(paragraphs), desc=f"Loading Chunks from {doc.filename}"):
         p = p.strip()
         if len(p) > max_chunk_size:
             new_pgraphs = recursive_split(p, max_chunk_size)
@@ -80,7 +81,7 @@ def chunk_content(content: str, min_chunk_size:int, max_chunk_size: int) -> list
 
 def load_document_to_index(d: Document):
     pc = Pinecone(api_key=PINECONE_API_KEY)
-    index = pc.Index("rag-test1")
+    index = pc.Index(PINECONE_INDEX)
     vectors: List[Dict] = []
     for chunk in d.chunks:
         v = {
@@ -90,15 +91,31 @@ def load_document_to_index(d: Document):
             "metadata" : {"title" : d.title, "filename" : d.filename, "text": chunk.chunk_text}
         }
         vectors.append(v)
-    # print(vectors)
     index.upsert(vectors, show_progress=True)
+
+def load_text_files_to_documents(folder_path: str) -> list[Document]:
+    if not os.path.exists(folder_path):
+        raise Exception(f"Folder '{folder_path}' does not exist.")
+    
+    docs = []
+
+    for file in os.listdir(folder_path):
+        if file.endswith('.txt'):
+            print(f"Found {file}")
+            docs.append(read_text_file(f"{folder_path}/{file}"))
+    if not docs:
+        raise Exception("No text files found in the folder.")
+    
+    return docs
+        
     
 def load_data():
-    d = read_text_file(sys.argv[1])
-    print(f"Loading {d.filename} to index")
-    d.generate_chunks()
-    load_document_to_index(d)
-    print(f"Loaded file {d.filename} to index")
+    docs = load_text_files_to_documents(folder_path=DATA_FOLDER)
+    for d in docs:
+        print(f"Loading {d.filename} to index")
+        d.chunks = chunk_document(d, min_chunk_size=10, max_chunk_size=500)
+        load_document_to_index(d)
+        print(f"Loaded file {d.filename} to index")
 
 def query_pinecone_index(index_name, query_embeddings: list[float], top_k: int = 2, include_metadata: bool = True) -> dict[str, any]:
     pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -120,8 +137,8 @@ def generate_llm_response(query: str, context: dict) -> str:
     prompt_template = (
         "Context: {context}\n"
         "Question: {query}\n"
-        "Evaluate if this context contains information that can answer the question. "
-        "If yes, using the provided information, give a better and summarized answer. "
+        "If this context contains information that can answer the question,"
+        "give a better and summarized answer. "
         'Else say "I don\'t have enough info to answer."'
     )
 
@@ -136,16 +153,13 @@ def generate_llm_response(query: str, context: dict) -> str:
     except Exception as e:
         return f"Error generating LLM response: {str(e)}"
     
-
-    
-
-
 def main():
-    # print("loading data")
-    # load_data()
-    # print("done loading")
-    # query_data("What grades in 2020?", "rag-test1")
-    query_data("What grades in Math 407", "rag-test1")
+    print(sys.argv)
+    
+    if(sys.argv[1] == "-L"):
+        load_data()
+    elif(sys.argv[1] == "-Q"):
+        query_data(sys.argv[2], PINECONE_INDEX)
     
 
 if __name__ == "__main__":
