@@ -23,9 +23,7 @@ DATA_FOLDER = os.getenv("DATA_FOLDER")
 class DocumentChunk:
     def __init__(self, chunk_text: str):
         self.id = self._generate_id(chunk_text)
-        # print("generating embedding...")
         self.embedding = self._generate_embedding(chunk_text)
-        # print("embedding generated")
         self.chunk_text = chunk_text
 
 
@@ -131,7 +129,6 @@ def query_data(query: str, index_name: str):
     print(generate_llm_response(query=query, context=search_res))
 
 def generate_llm_response(query: str, context: dict) -> str:
-    # Combine the context into a single string
     context_string = " ".join(doc['metadata']['text'] for doc in context['matches'])
 
     prompt_template = (
@@ -142,7 +139,6 @@ def generate_llm_response(query: str, context: dict) -> str:
         'Else say "I don\'t have enough info to answer."'
     )
 
-    # Initialize LangChain with OpenAI's newer API setup
     llm = ChatOpenAI(temperature=0, model_name="gpt-4", openai_api_key=OPENAI_API_KEY)
     prompt = PromptTemplate(input_variables=["context", "query"], template=prompt_template)
     chain = LLMChain(llm=llm, prompt=prompt)
