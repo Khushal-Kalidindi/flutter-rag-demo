@@ -1,19 +1,13 @@
 // ignore_for_file: prefer_const_constructors, prefer_const_literals_to_create_immutables
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'chat_message.dart';
+import 'openai.dart';
+import 'pinecone.dart';
 
 class ChatPage extends StatefulWidget {
   const ChatPage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
 
   final String title;
 
@@ -27,10 +21,14 @@ class _ChatPageState extends State<ChatPage> {
   late Future<String> _futureData;
   String _data = "";
 
-  // Simulate a network request by delaying for 2 seconds
-  Future<void> fetchData() async {
-    await Future.delayed(Duration(seconds: 2));
-    _onLLMResponse("LLM res loaded");
+  Future<void> fetchData(String query) async {
+    List<double> embedding_res =
+        await OpenAIService().generateEmbeddings(query);
+    Map<String, dynamic> pinecone_res = await PineconeService()
+        .queryIndex(dotenv.env["PINECONE_INDEX"]!, embedding_res);
+    String context = pinecone_res['matches'][0]['metadata']['text'];
+    String LLM_res = await OpenAIService().generateLLMResponse(query, context);
+    _onLLMResponse(LLM_res);
   }
 
   final TextEditingController _controller = TextEditingController();
@@ -42,7 +40,7 @@ class _ChatPageState extends State<ChatPage> {
       }
       _conversation.add(text);
       _conversation.add("Loading..");
-      fetchData();
+      fetchData(text);
     });
   }
 

@@ -4,7 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class PineconeService {
   final String apiKey = dotenv.env['PINECONE_API_KEY'] ?? "";
-  final String pineconeBaseUrl = dotenv.env['PINECONE_INDEX_URL'] ?? "";
+  final String pineconeBaseUrl = dotenv.env['PINECONE_BASE_URL'] ?? "";
 
   Future<Map<String, dynamic>> queryIndex(
       String indexName, List<double> queryEmbeddings,
@@ -14,7 +14,7 @@ class PineconeService {
     var requestBody = {
       "vector": queryEmbeddings,
       "topK": topK,
-      "includeMetadata": includeMetadata
+      "includeMetadata": includeMetadata,
     };
 
     try {
